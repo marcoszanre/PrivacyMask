@@ -1,0 +1,49 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+bin/
+obj/
+
+# VS Code
+.vscode/
+
+# Rider
+.idea/
+
+# Publish output
+publish/
+**/publish/
+
+# NuGet
+*.nupkg
+packages/
+
+# Logs
+*.log
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Dotnet
+project.lock.json
+project.fragment.lock.json
+
+# Others
+*.pdb
+*.ilk
+*.tmp
+*.cache
+*.msi
+
+# User-specific files
+*.rsuser
+*.suo
+
+# Ensure single-file published exe isn't committed accidentally
+bin/**/publish/
