@@ -67,12 +67,21 @@ public class PrivacyMaskOverlay : Form
         TransparencyKey = Color.Lime;
         TopMost = true; // keep overlay on top so it doesn't get covered when clicking through
 
-        // Create menu (use system colors so it follows current theme)
+        // Create menu (use Notepad-style colors)
         var menu = new MenuStrip();
-        menu.BackColor = SystemColors.MenuBar;
-        menu.ForeColor = SystemColors.MenuText;
-        menu.RenderMode = ToolStripRenderMode.System;
+        menu.BackColor = Color.FromArgb(240, 240, 240); // Light gray like Notepad
+        menu.ForeColor = Color.Black;
+        menu.RenderMode = ToolStripRenderMode.Professional;
+        menu.Renderer = new NotepadStyleRenderer(); // Custom renderer for hover colors
         menu.Padding = new Padding(2);
+
+        // Create File menu
+        var fileMenu = new ToolStripMenuItem("File");
+        var newWindowItem = new ToolStripMenuItem("New Window");
+        newWindowItem.ShortcutKeyDisplayString = "Ctrl+Alt+N";
+        newWindowItem.Click += (s, e) => { CreateNewWindow(); };
+        fileMenu.DropDownItems.Add(newWindowItem);
+        menu.Items.Add(fileMenu);
 
         var attachMenu = new ToolStripMenuItem("Attach");
         var refreshItem = new ToolStripMenuItem("Refresh window list");
@@ -117,9 +126,11 @@ public class PrivacyMaskOverlay : Form
         // Hotkeys globais:
         // Ctrl+Alt+1 → alterna preto em captura
         // Ctrl+Alt+2 → alterna excluir da captura (2004+)
+        // Ctrl+Alt+N → nova janela
         // Ctrl+Alt+Q → sair
         RegisterHotKey(Handle, 1, MOD_CONTROL | MOD_ALT, (uint)Keys.D1);
         RegisterHotKey(Handle, 2, MOD_CONTROL | MOD_ALT, (uint)Keys.D2);
+        RegisterHotKey(Handle, 3, MOD_CONTROL | MOD_ALT, (uint)Keys.N);
         RegisterHotKey(Handle, 9, MOD_CONTROL | MOD_ALT, (uint)Keys.Q);
 
         // Build initial window list in the menu (if menu exists)
@@ -143,7 +154,14 @@ public class PrivacyMaskOverlay : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         // Reset display affinity so we don't leave any state behind
-        try { SetWindowDisplayAffinity(Handle, WDA_NONE); } catch { }
+        try 
+        { 
+            if (Handle != IntPtr.Zero && !IsDisposed)
+            {
+                SetWindowDisplayAffinity(Handle, WDA_NONE); 
+            }
+        } 
+        catch { }
         base.OnFormClosed(e);
     }
 
@@ -166,9 +184,17 @@ public class PrivacyMaskOverlay : Form
 
     protected override void OnHandleDestroyed(EventArgs e)
     {
-        UnregisterHotKey(Handle, 1);
-        UnregisterHotKey(Handle, 2);
-        UnregisterHotKey(Handle, 9);
+        try
+        {
+            if (Handle != IntPtr.Zero)
+            {
+                UnregisterHotKey(Handle, 1);
+                UnregisterHotKey(Handle, 2);
+                UnregisterHotKey(Handle, 3);
+                UnregisterHotKey(Handle, 9);
+            }
+        }
+        catch { }
         base.OnHandleDestroyed(e);
     }
 
@@ -231,6 +257,10 @@ public class PrivacyMaskOverlay : Form
                 excluded = !excluded;
                 SetWindowDisplayAffinity(Handle, excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
             }
+            else if (id == 3) // Ctrl+Alt+N: nova janela
+            {
+                CreateNewWindow();
+            }
             else if (id == 9) // Ctrl+Alt+Q: sair
             {
                 Close();
@@ -248,19 +278,26 @@ public class PrivacyMaskOverlay : Form
         if (m.Msg == WM_SIZE || m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SHOWWINDOW || m.Msg == WM_SYSCOMMAND)
         {
             // Use BeginInvoke to ensure this happens after the window state change is complete
-            this.BeginInvoke((Action)(() => {
-                try
+            try
+            {
+                if (!IsDisposed && IsHandleCreated)
                 {
-                    if (this.IsHandleCreated && !this.IsDisposed)
-                    {
-                        int ex = GetWindowLong(Handle, GWL_EXSTYLE);
-                        ex |= WS_EX_LAYERED;
-                        ex &= ~WS_EX_TRANSPARENT; // ensure transparent flag is NEVER set globally
-                        SetWindowLong(Handle, GWL_EXSTYLE, ex);
-                    }
+                    this.BeginInvoke((Action)(() => {
+                        try
+                        {
+                            if (this.IsHandleCreated && !this.IsDisposed)
+                            {
+                                int ex = GetWindowLong(Handle, GWL_EXSTYLE);
+                                ex |= WS_EX_LAYERED;
+                                ex &= ~WS_EX_TRANSPARENT; // ensure transparent flag is NEVER set globally
+                                SetWindowLong(Handle, GWL_EXSTYLE, ex);
+                            }
+                        }
+                        catch { }
+                    }));
                 }
-                catch { }
-            }));
+            }
+            catch { }
         }
     }
 
@@ -270,12 +307,38 @@ public class PrivacyMaskOverlay : Form
         {
             if (!this.IsDisposed && this.IsHandleCreated)
             {
-                this.BeginInvoke((Action)(() => {
-                    SetForegroundWindow(this.Handle);
-                }));
+                if (!IsDisposed && IsHandleCreated)
+                {
+                    this.BeginInvoke((Action)(() => {
+                        try
+                        {
+                            if (!IsDisposed && IsHandleCreated)
+                            {
+                                SetForegroundWindow(this.Handle);
+                            }
+                        }
+                        catch { }
+                    }));
+                }
             }
         }
         catch { }
+    }
+
+    void CreateNewWindow()
+    {
+        try
+        {
+            // Create a new PrivacyMask window in a separate thread to avoid blocking
+            var newWindow = new PrivacyMaskOverlay();
+            newWindow.Show();
+            // Bring the new window to front
+            newWindow.BringToFront();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error creating new window: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     // ----- Window enumeration & attach logic -----
@@ -380,5 +443,39 @@ public class PrivacyMaskOverlay : Form
         IntPtr hIcon = bmp.GetHicon();
         var ico = Icon.FromHandle(hIcon);
         return ico;
+    }
+}
+
+// Custom renderer for Notepad-style menu colors
+public class NotepadStyleRenderer : ToolStripProfessionalRenderer
+{
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        if (e.Item.Selected)
+        {
+            // Use a light blue hover color like Notepad
+            using (var brush = new SolidBrush(Color.FromArgb(205, 232, 255)))
+            {
+                e.Graphics.FillRectangle(brush, e.Item.ContentRectangle);
+            }
+            // Draw a subtle border
+            using (var pen = new Pen(Color.FromArgb(153, 209, 255)))
+            {
+                e.Graphics.DrawRectangle(pen, new Rectangle(e.Item.ContentRectangle.X, e.Item.ContentRectangle.Y, 
+                    e.Item.ContentRectangle.Width - 1, e.Item.ContentRectangle.Height - 1));
+            }
+        }
+        else
+        {
+            // Default background
+            base.OnRenderMenuItemBackground(e);
+        }
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        // Ensure text is always black for readability
+        e.TextColor = Color.Black;
+        base.OnRenderItemText(e);
     }
 }
